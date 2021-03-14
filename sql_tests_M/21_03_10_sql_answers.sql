@@ -1,6 +1,6 @@
 --Q-1: How many employees there are in the company?
 SELECT 
-	COUNT(emp_id) num_employees
+	COUNT(DISTINCT emp_id) num_employees
 FROM employees;
 /*
 Solved (Y/N):
@@ -11,8 +11,7 @@ SELECT
 	emp_rank,
 	COUNT(emp_id) AS num_employees	
 FROM employees
-GROUP BY 1
-ORDER BY 2 DESC;
+GROUP BY 1;
 /*
 Solved (Y/N):
 */
@@ -23,28 +22,37 @@ The source I used to solve this task: Calculating Percentile (and Median) in Pos
 https://leafo.net/guides/postgresql-calculating-percentile.html#calculating-the-median
 */
 -- A: per each department? 
+WITH salary_department AS(
 SELECT 
 	d.department_id,
 	d.department_name,
-	percentile_disc(0.5) WITHIN GROUP(ORDER BY s.salary) as median_salary
+	s.salary
 FROM department d
 JOIN employees e USING (department_id)
--- 	ON d.department_id = e.department_id
 JOIN salaries s
 	ON e.emp_id = s.employee_id
-GROUP BY 1,2;
+)
+SELECT
+  	department_id,
+	department_name,
+	PERCENTILE_DISC (0.5) WITHIN GROUP (ORDER BY salary) as median_salary
+FROM salary_department
+GROUP BY 1, 2;
 
 -- B: What is the median salary per each site?
-SELECT 
-	st.site_id,
-	percentile_disc(0.5) WITHIN GROUP(ORDER BY s.salary) as median_salary	
-FROM salaries s
-JOIN employees e
-	ON s.employee_id = e.emp_id
-JOIN department d
-	ON e.department_id = d.department_id
-JOIN sites st
-	ON d.site_id = st.site_id
+WITH salary_department AS(
+	SELECT 
+		st.site_id,
+		s.salary
+	FROM salaries s
+	JOIN employees e
+		ON s.employee_id = e.emp_id
+	JOIN department d USING (department_id)
+	JOIN sites st USING (site_id)
+)	
+SELECT site_id,
+	PERCENTILE_DISC (0.5) WITHIN GROUP (ORDER BY salary) as median_salary
+FROM salary_department
 GROUP BY 1;
 
 /*
@@ -82,7 +90,7 @@ But performance comparison of these 2 variants remains open for me:)
 WITH site_expenses AS(
 SELECT 
 	DISTINCT st.site_id,
-	MAX(st.site_cost + s.salary) OVER (PARTITION BY st.site_id) as total_expenses
+	st.site_cost + s.salary as total_expenses
 FROM sites st
 JOIN department d
 	ON st.site_id = d.site_id
@@ -91,10 +99,12 @@ JOIN employees e
 JOIN salaries s
 	ON e.emp_id = s.employee_id
 )
-SELECT *
+SELECT 
+	site_id,
+	MAX(total_expenses) OVER (PARTITION BY site_id)
 FROM site_expenses
 WHERE total_expenses = (
-	SELECT 
+	SELECT
 		MAX(total_expenses)
 	FROM site_expenses
 );
@@ -109,7 +119,7 @@ I assume that this is in terms of the number of employees:)
 WITH num_emp_per_dep AS(
 	SELECT 
 		department_id,
-		COUNT(emp_id) as num_emp
+		COUNT(DISTINCT emp_id) as num_emp
 	FROM employees
 	GROUP BY 1
 	)
@@ -143,7 +153,7 @@ FROM dep_expenses
 WHERE total_expenses = (
 	SELECT MAX(total_expenses)
 	FROM dep_expenses
-);
+)
 /*
 Solved (Y/N):
 */
@@ -181,41 +191,36 @@ WITH total_site_salaries AS(
 )
 SELECT *
 FROM share_site_salaries
-WHERE site_id = 2;
+WHERE site_id = 112;
 /*
 Solved (Y/N):
 */
 
 -- Q-9: Please, create 'churn' analysis by cohort of employees.
 /*
-I can't figure out how to create 'churn' analysis in this particular case having only 1 (one) timestamp :(
-However, for practical purposes, I have tried to create a retention rate using the current date as the second timestamp.
+To solve the task, we can take the month of hiring_date as a cohort.
+And we can calculate the employee churn as:
+(num_employed - num_employees in the next month) / num_employed.
+NB! the last row will containe null value in churn rate.
 */
-WITH cohorts AS(
+WITH emp_hiring AS(
 		SELECT
-			emp_id,
-			MIN(DATE_TRUNC('month', hiring_date)) OVER (PARTITION BY emp_id) as cohort_month,
-			EXTRACT(month FROM AGE(CURRENT_DATE, DATE_TRUNC('month', hiring_date))) as work_month
+			DISTINCT emp_id,
+			MIN(DATE_TRUNC('month', hiring_date)) OVER (PARTITION BY emp_id) as cohort_month
 		FROM employees
-		WHERE still_working = True							   
+),
+ 	emp_cohorts AS(
+SELECT 
+	DISTINCT cohort_month,
+	COUNT(emp_id) OVER (PARTITION BY cohort_month ORDER BY cohort_month) as num_employed
+FROM emp_hiring
+ORDER BY 1		
 )
-SELECT cohort_month, 
-	SUM(CASE WHEN work_month = 12 THEN 1 ELSE 0 END) AS month_12,
-	SUM(CASE WHEN work_month = 11 THEN 1 ELSE 0 END) AS month_11,
-	SUM(CASE WHEN work_month = 10 THEN 1 ELSE 0 END) AS month_10,
-	SUM(CASE WHEN work_month = 9 THEN 1 ELSE 0 END) AS month_9,
-	SUM(CASE WHEN work_month = 8 THEN 1 ELSE 0 END) AS month_8,
-	SUM(CASE WHEN work_month = 7 THEN 1 ELSE 0 END) AS month_7,
-	SUM(CASE WHEN work_month = 6 THEN 1 ELSE 0 END) AS month_6,
-	SUM(CASE WHEN work_month = 5 THEN 1 ELSE 0 END) AS month_5,
-	SUM(CASE WHEN work_month = 4 THEN 1 ELSE 0 END) AS month_4,
-	SUM(CASE WHEN work_month = 3 THEN 1 ELSE 0 END) AS month_3,
-	SUM(CASE WHEN work_month = 2 THEN 1 ELSE 0 END) AS month_2,
-	SUM(CASE WHEN work_month = 1 THEN 1 ELSE 0 END) AS month_1,
-	SUM(CASE WHEN work_month = 0 THEN 1 ELSE 0 END) AS month_0
-FROM cohorts
-GROUP BY 1
-ORDER BY 1;
+SELECT *,	
+	LEAD(num_employed, 1) OVER (ORDER BY num_employed) as num_empl_end_month,
+ 	ROUND((num_employed - LEAD(num_employed, 1) OVER (ORDER BY num_employed)) / num_employed  * 100, 2) as churn_rate
+FROM emp_cohorts;
+
 /*
 Solved (Y/N):
 */
