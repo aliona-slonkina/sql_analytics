@@ -153,7 +153,7 @@ FROM dep_expenses
 WHERE total_expenses = (
 	SELECT MAX(total_expenses)
 	FROM dep_expenses
-)
+);
 /*
 Solved (Y/N):
 */
@@ -161,7 +161,7 @@ Solved (Y/N):
 -- Q-7: How many employees joined in the last year? Split it by months.
 SELECT 
 	DATE_PART('month', hiring_date) AS hiring_month,
-	COUNT(emp_id) as num_hired_emp
+	COUNT(DISTINCT emp_id) as num_hired_emp
 FROM employees
 WHERE DATE_PART('year', hiring_date) = '2020'
 GROUP BY 1
@@ -170,7 +170,7 @@ ORDER BY 1;
 Solved (Y/N):
 */
 
--- Q-8: What is the salary share of site #2 out of total salaries?
+-- Q-8: What is the salary share of site #112 out of total salaries?
 WITH total_site_salaries AS(
 	SELECT 
 		st.site_id,
@@ -206,10 +206,11 @@ NB! the last row will containe null value in churn rate.
 WITH emp_hiring AS(
 		SELECT
 			DISTINCT emp_id,
-			MIN(DATE_TRUNC('month', hiring_date)) OVER (PARTITION BY emp_id) as cohort_month
+			MIN(DATE_TRUNC('month', hiring_date)) OVER (PARTITION BY emp_id) as cohort_month,
+			still_working = true
 		FROM employees
-),
- 	emp_cohorts AS(
+)
+  	, emp_cohorts AS(
 SELECT 
 	DISTINCT cohort_month,
 	COUNT(emp_id) OVER (PARTITION BY cohort_month ORDER BY cohort_month) as num_employed
