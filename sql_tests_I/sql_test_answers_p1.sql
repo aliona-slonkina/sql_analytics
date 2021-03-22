@@ -15,7 +15,7 @@ LIMIT 10;
 SELECT 
 	sc_id,
 	SUM(amount) / COUNT(DISTINCT buyer_id) as SPB,
-	ROUND(COUNT(DISTINCT order_id) / COUNT(DISTINCT buyer_id), 2) as OPB
+	ROUND(COUNT(order_id) / COUNT(DISTINCT buyer_id), 2) as OPB
 FROM orders
 WHERE is_tip = 0
 GROUP BY 1
@@ -26,33 +26,32 @@ LIMIT 5;
 WITH daily_activity AS(
 	SELECT 
 		date,
-		amount,
-		SUM(amount) OVER func_window  as daily_revenue,
-		COUNT(order_id) OVER func_window as daily_orders
+		SUM(amount) as daily_revenue,
+		COUNT(DISTINCT order_id) as daily_orders
 	FROM orders
 	WHERE is_tip = 0
-	WINDOW func_window as (PARTITION BY date)
+	GROUP BY 1
 )
 SELECT 
-	AVG(daily_revenue) as avg_daily_revenue,
-	AVG(daily_orders) as avg_daily_orders
+	ROUND(AVG(daily_revenue)::numeric, 2) as avg_daily_revenue,
+	ROUND(AVG(daily_orders), 2) as avg_daily_orders
 FROM daily_activity;
 
--- Q-4: How much daily revenue & orders we get from first time buyers? 
+-- Q-4: How much daily revenue & orders we get from first time buyers? (on average)
+
 WITH first_time_byers AS(
 	SELECT 
-		DISTINCT order_id,
 		date,
-		amount
+		COUNT(DISTINCT order_id) as num_orders,
+		SUM(amount) as revenue
 	FROM orders
 	WHERE is_ftb = 1 AND is_tip = 0
+	GROUP BY 1
 )
 SELECT 
-	date,
-	SUM(amount) OVER func_window  as daily_revenue,
-	COUNT(order_id) OVER func_window as daily_orders
-FROM orders
-WINDOW func_window as (PARTITION BY date);
+	ROUND(AVG(num_orders), 2) as avg_daily_orders,
+	AVG(revenue) avg_daily_revenue
+FROM first_time_byers;
 	
 -- Q-5: What are the top 3 countries that our buyers are coming from?
 SELECT 
@@ -114,7 +113,7 @@ LIMIT 5;
 -- Q-9: How does the daily revenue & orders distribute between the platforms? (please provide your answer in %)
 SELECT 
 	SUM(CASE WHEN platform = 'web' THEN amount END) / SUM(amount) as revenue_web_ratio,
-	SUM(CASE WHEN platform = 'app' THEN amount END) / SUM(amount) as app,
+	SUM(CASE WHEN platform = 'app' THEN amount END) / SUM(amount) as revenue_app_ratio,
 	SUM(CASE WHEN platform = 'mobile_web' THEN amount END) / SUM(amount) as revenue_mobile_web_ratio,	
 	
 	COUNT(DISTINCT CASE WHEN platform = 'web' THEN order_id END) / COUNT(DISTINCT order_id) as orders_web_ratio,
@@ -136,8 +135,10 @@ WITH sub_categories AS(
 )
 SELECT 
 	DISTINCT category_id,
-	AVG(num_sub_categories) OVER (PARTITION BY category_id) - 
-		PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY num_sub_categories) 
+	ROUND(
+		AVG(num_sub_categories) OVER (PARTITION BY category_id) - 
+			PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY num_sub_categories)
+				, 2)
 			as avg_median_diff
 FROM sub_categories
 GROUP BY 1, num_sub_categories
