@@ -102,8 +102,14 @@ SELECT
 				) as num_rents_duration_more_1_day
 FROM view_cycle_hire
 ;
+-- M variant
+select  
+	count(distinct  rental_id) rentals 
+from    cycle_hire a
+where date(start_date) <>  date(end_date)
 
--- Q-10: Return the number of rentals per bike, where duration was less than 1000 sec:
+
+-- Q-10-1: Return the AVG of rentals per bike, where duration was less than 1000 sec:
 
 WITH rentals_less_1000_sec AS (
 
@@ -120,6 +126,24 @@ SELECT
 			as num_rental_per_bike_less_1000_sec
 FROM rentals_less_1000_sec
 ;
+-- Q-10-2: Return the number of rentals per bike, where duration was less than 1000 sec:
+
+SELECT
+	bike_id as bikes
+	, COUNT(DISTINCT rental_id) as num_rentals_less_1000_sec
+FROM view_cycle_hire
+WHERE duration < 1000
+GROUP BY 1
+;
+
+-- M variant
+select  
+	bike_id,      
+	count(distinct rental_id) rentals
+from    cycle_hire a
+where duration <= 1000
+group by 1
+
 
 -- Q-11: Return the top 3 rented bike id where the duration was less than 1000 sec:
 
@@ -137,7 +161,7 @@ LIMIT 3
 
 SELECT	
 	DISTINCT bike_id
-	, COUNT (rental_id) num_rents
+	, COUNT (DISTINCT rental_id) num_rents
 FROM view_cycle_hire
 WHERE DATE_PART('year', start_date) IN (2014, 2016)
 GROUP BY 1
@@ -191,6 +215,15 @@ SELECT
 FROM all_point_satations
 WHERE bike_id != 2143
 ORDER BY 1
+;
+-- M variant
+select 
+	name
+from cycle_stations  
+where id not in (select start_station_id  
+		   		from cycle_hire
+                where bike_id=2143)
+group by 1 
 ;
 
 -- Q-15: Per each rent return start time, and coordinates of start station:
@@ -274,11 +307,21 @@ WHERE duration = (
 		MAX (duration)
 	FROM view_cycle_hire
 );
+-- M variant
+select  
+      start_station_name,
+      end_station_name,
+      max(duration) as duration
+from  cycle_hire
+group by 1,2, duration
+having duration >= (select max(duration) 
+	                    from cycle_hire)
+;
 
 -- Q-19: per each day in 2015 return the total number of rentals and avg daily duration, order by the date the results.
 SELECT
 	DATE_TRUNC('day', start_date) as day
-	, COUNT(rental_id) as daily_rentals
+	, COUNT(DISTINCT rental_id) as daily_rentals
 	, ROUND(AVG(duration)) as avg_daily_duration
 FROM view_cycle_hire
 WHERE DATE_PART('year', start_date) = 2015
@@ -292,6 +335,19 @@ SELECT
 	, DATE_TRUNC('day', MIN(start_date))
 FROM view_cycle_hire
 GROUP BY 1
+ORDER BY 1
+;
+-- M variant
+with bike_rn as(
+	select  
+	bike_id,
+	start_date,
+	row_number() over(partition by bike_id order by start_date) rn
+	from   cycle_hire )
+ select bike_id,start_date
+ from bike_rn
+ where rn=1
+group by 1,2
 ;
 
 -- Q-21: Per each bike, per each year - return the total duration:
@@ -299,7 +355,16 @@ GROUP BY 1
 SELECT
 	bike_id
 	, EXTRACT(year FROM start_date) as rent_year
-	, SUM(AGE(end_date, start_date)) as toal_duration	
+	, SUM(AGE(end_date, start_date)) as toal_duration_min	
 FROM view_cycle_hire
 GROUP BY 1,2
-ORDer BY 1;
+ORDER BY 1;
+
+-- M variant
+select
+	distinct bike_id,
+	extract(year from start_date) as year,
+	sum( duration )  over( partition by bike_id,extract(year from start_date))  as sum_duration
+from   cycle_hire
+order by 1
+;
